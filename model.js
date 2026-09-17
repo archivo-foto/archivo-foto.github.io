@@ -2,12 +2,13 @@ export const PHOTO_ID = /^[a-f0-9]{64}$/;
 export const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function validateEvent(event) {
   if (!event || !UUID.test(event.id) || !PHOTO_ID.test(event.photoId) ||
-      !Number.isSafeInteger(event.at) || event.at < 0 || !['rating', 'species', 'session'].includes(event.field))
+      !Number.isSafeInteger(event.at) || event.at < 0 || !['rating', 'species', 'session', 'category'].includes(event.field))
     throw new Error('Corrección de catálogo no válida.');
   if (event.field === 'rating' && (!Number.isInteger(event.value) || event.value < 1 || event.value > 5))
     throw new Error('La valoración debe estar entre 1 y 5.');
   if (event.field !== 'rating' && (typeof event.value !== 'string' || !event.value.trim() || event.value.length > 160))
     throw new Error('El texto debe tener entre 1 y 160 caracteres.');
+  if(event.field==='category'&&!['POR_CLASIFICAR','LINCE','AVES','FAUNA','FLORA','INSECTOS','MACRO EXTREMO','NOCTURNAS','PAISAJE'].includes(event.value))throw new Error('Categoría no válida.');
   return event;
 }
 export function mergePhotos(photos, events) {

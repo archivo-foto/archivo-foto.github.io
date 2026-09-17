@@ -58,6 +58,7 @@ async function openPhoto(id){
   const photo=photos().find(p=>p.id===id);if(!photo)return;
   state.selected=id;$('detailTitle').textContent=photo.species||photo.fileName;
   $('detailMetadata').textContent=[photo.fileName,photo.capturedAt?.slice(0,10),photo.metadata].filter(Boolean).join(' · ');
+  $('categoryInput').value=photo.category||'POR_CLASIFICAR';
   $('speciesInput').value=photo.species||'';$('sessionInput').value=photo.session||'';
   $('confidenceText').textContent=photo.reviewStatus==='manual'?'Identificación revisada por ti.':photo.confidence!=null?
     `Propuesta de BioCLIP 2: ${photo.scientificName||photo.species}. Puntuación del modelo: ${(photo.confidence*100).toFixed(1)} %. No es una garantía de identificación.`:'Pendiente de identificación. Puedes escribir la especie o analizarla en Windows.';
@@ -89,8 +90,8 @@ async function sync(){
 async function pollJob(){
   const job=await local('/api/job');if(job.status==='idle'){$('job').hidden=true;return;}$('job').hidden=false;
   $('jobText').textContent=job.status==='error'?job.error:job.status==='done'?
-    `Tarea terminada: ${job.details.imported??job.details.analyzed??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
-    `${job.kind==='import'?'Importando':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
+    `Tarea terminada: ${job.details.imported??job.details.analyzed??job.details.organized??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
+    `${job.kind==='import'?'Importando':job.kind==='organize'?'Organizando carpetas':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
   if(job.total){$('jobProgress').max=job.total;$('jobProgress').value=job.done;}else $('jobProgress').removeAttribute('value');
   if(job.status==='running'){jobTimer=setTimeout(()=>run(pollJob),1500);return;}
   $('importButton').disabled=false;$('analyzeButton').disabled=false;
@@ -166,3 +167,8 @@ $('logoutButton').onclick=()=>{
   },$('logoutButton'));
 };
 initialize().catch(error=>notice(error.message,true));
+
+$('archiveButton').onclick=()=>run(async()=>{await localSession();const picked=await local('/api/pick-folder',{});if(!picked.folder)return;const result=await local('/api/archive',{folder:picked.folder});notice('Destino guardado: '+result.path+'. Los originales de las próximas importaciones se copiarán sin recomprimir.');},$('archiveButton'));
+
+$('categoryForm').onsubmit=e=>{e.preventDefault();run(()=>save('category',$('categoryInput').value),e.submitter);};
+$('organizeButton').onclick=()=>run(()=>startJob('/api/organize',{}),$('organizeButton'));
