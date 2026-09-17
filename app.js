@@ -42,9 +42,9 @@ function draw(){
       const photo=visible.find(p=>p.id===img.dataset.id);picture(photo,'thumb').then(url=>{if(generation===state.generation)img.src=url;else if(url.startsWith('blob:')){URL.revokeObjectURL(url);state.urls.delete(url);}}).catch(()=>{img.alt='Vista previa no disponible. Conecta Drive de nuevo.';});}
   },{rootMargin:'200px'});
   for(const photo of visible.slice(0,state.limit)){
-    const card=node('button',undefined,'card');card.type='button';card.setAttribute('aria-label',`Abrir ${photo.species||photo.fileName}`);
-    const img=node('img',undefined,'photo');img.alt=photo.species||photo.fileName;img.dataset.id=photo.id;
-    const info=node('div',undefined,'info');info.append(node('h3',photo.species||photo.fileName),node('p',photo.session||'Sin sesión','meta'),node('p',photo.rating?'★'.repeat(photo.rating)+'☆'.repeat(5-photo.rating):'Sin valorar','meta'));
+    const card=node('button',undefined,'card');card.type='button';card.setAttribute('aria-label',`Abrir ${photo.species||photo.scientificName||photo.fileName}`);
+    const img=node('img',undefined,'photo');img.alt=photo.species||photo.scientificName||photo.fileName;img.dataset.id=photo.id;
+    const info=node('div',undefined,'info');info.append(node('h3',photo.species||photo.scientificName||photo.fileName),node('p',photo.scientificName||'Nombre científico pendiente','meta'),node('p',photo.session||'Sin sesión','meta'),node('p',photo.rating?'★'.repeat(photo.rating)+'☆'.repeat(5-photo.rating):'Sin valorar','meta'));
     if(photo.reviewStatus==='pendiente')info.append(node('span','Por revisar','badge'));
     card.append(img,info);card.onclick=()=>run(()=>openPhoto(photo.id));grid.append(card);observer.observe(img);
   }
@@ -56,16 +56,18 @@ async function reload(){
 }
 async function openPhoto(id){
   const photo=photos().find(p=>p.id===id);if(!photo)return;
-  state.selected=id;$('detailTitle').textContent=photo.species||photo.fileName;
+  state.selected=id;$('detailTitle').textContent=photo.species||photo.scientificName||photo.fileName;
   $('detailMetadata').textContent=[photo.fileName,photo.capturedAt?.slice(0,10),photo.metadata].filter(Boolean).join(' · ');
   $('categoryInput').value=photo.category||'POR_CLASIFICAR';
+  $('scientificNameInput').value=photo.scientificName||'';
+  $('scientificDisplay').textContent=(photo.scientificName||'Nombre científico pendiente')+(photo.species?'':' · Nombre en español no disponible')+(photo.nameSource?.source?' · Fuente: '+photo.nameSource.source:'');
   $('speciesInput').value=photo.species||'';$('sessionInput').value=photo.session||'';
   $('confidenceText').textContent=photo.reviewStatus==='manual'?'Identificación revisada por ti.':photo.confidence!=null?
     `Propuesta de BioCLIP 2: ${photo.scientificName||photo.species}. Puntuación del modelo: ${(photo.confidence*100).toFixed(1)} %. No es una garantía de identificación.`:'Pendiente de identificación. Puedes escribir la especie o analizarla en Windows.';
   $('ratingSource').textContent=photo.ratingSource==='manual'?'Valoración elegida por ti.':photo.ratingSource==='estimated'?'Estimación técnica basada en metadatos. Puedes cambiarla.':'Valora esta fotografía de 1 a 5 estrellas.';
   $('stars').replaceChildren();
   for(let n=1;n<=5;n++){const button=node('button',n<=(photo.rating||0)?'★':'☆');button.setAttribute('aria-label',`${n} estrellas`);button.setAttribute('aria-pressed',String(n<=(photo.rating||0)));button.onclick=()=>run(()=>save('rating',n),button);$('stars').append(button);}
-  $('detailImage').removeAttribute('src');$('detailImage').alt=photo.species||photo.fileName;
+  $('detailImage').removeAttribute('src');$('detailImage').alt=photo.species||photo.scientificName||photo.fileName;
   if(!$('detail').open)$('detail').showModal();
   const url=await picture(photo,'preview');if(state.selected===id&&$('detail').open)$('detailImage').src=url;
 }
@@ -90,8 +92,8 @@ async function sync(){
 async function pollJob(){
   const job=await local('/api/job');if(job.status==='idle'){$('job').hidden=true;return;}$('job').hidden=false;
   $('jobText').textContent=job.status==='error'?job.error:job.status==='done'?
-    `Tarea terminada: ${job.details.imported??job.details.analyzed??job.details.organized??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
-    `${job.kind==='import'?'Importando':job.kind==='organize'?'Organizando carpetas':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
+    `Tarea terminada: ${job.details.imported??job.details.analyzed??job.details.organized??job.details.named??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
+    `${job.kind==='import'?'Importando':job.kind==='organize'?'Organizando carpetas':job.kind==='names'?'Consultando nombres en español':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
   if(job.total){$('jobProgress').max=job.total;$('jobProgress').value=job.done;}else $('jobProgress').removeAttribute('value');
   if(job.status==='running'){jobTimer=setTimeout(()=>run(pollJob),1500);return;}
   $('importButton').disabled=false;$('analyzeButton').disabled=false;
@@ -103,7 +105,7 @@ function resetAccount(){
   state.epoch++;clearInterval(sessionTimer);clearTimeout(jobTimer);clearImages();state.drive?.disconnect();
   state.drive=null;state.user=null;state.snapshot=null;state.events=[];state.selected=null;state.section='all';state.limit=80;
   $('grid').replaceChildren();$('detailImage').removeAttribute('src');$('detailImage').alt='';
-  for(const id of ['search','speciesInput','sessionInput','folderInput'])$(id).value='';
+  for(const id of ['search','speciesInput','scientificNameInput','sessionInput','folderInput'])$(id).value='';
   $('rating').value='';$('sort').value='recent';$('userEmail').textContent='';
   document.querySelectorAll('[data-section]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.section==='all')));
   document.querySelectorAll('dialog[open]').forEach(d=>d.close());
@@ -148,10 +150,10 @@ for(const id of ['googleButton','connectButton'])$(id).onclick=()=>{
 $('syncButton').onclick=()=>run(sync);$('refreshButton').onclick=()=>run(reload,$('refreshButton'));
 $('importButton').onclick=()=>$('importDialog').showModal();
 $('chooseFolderButton').onclick=()=>run(async()=>{await localSession();const result=await local('/api/pick-folder',{});if(result.folder)$('folderInput').value=result.folder;},$('chooseFolderButton'));
-$('importForm').onsubmit=e=>{e.preventDefault();run(()=>startJob('/api/import',{folder:$('folderInput').value}),e.submitter);};
-$('analyzeButton').onclick=()=>run(()=>startJob('/api/analyze',{}),$('analyzeButton'));
+$('importForm').onsubmit=e=>{e.preventDefault();run(()=>startJob('/api/import',{folder:$('folderInput').value,autoAnalyze:$('autoAnalyze').checked,spanishNames:$('spanishNames').checked}),e.submitter);};
+$('analyzeButton').onclick=()=>run(()=>startJob('/api/analyze',{spanishNames:$('spanishNames').checked}),$('analyzeButton'));
 $('backupButton').onclick=()=>run(async()=>{await localSession();const response=await fetch('/api/backup',{headers:{'X-Archivo-Account':state.drive.config.instanceId}});if(!response.ok)throw new Error('No se pudo crear el respaldo.');const url=URL.createObjectURL(await response.blob());const a=node('a');a.href=url;a.download='catalogo-respaldo.sqlite3';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);},$('backupButton'));
-$('speciesForm').onsubmit=e=>{e.preventDefault();run(()=>save('species',$('speciesInput').value.trim()),e.submitter);};
+$('speciesForm').onsubmit=e=>{e.preventDefault();run(()=>save('identification',{species:$('speciesInput').value.trim(),scientificName:$('scientificNameInput').value.trim()}),e.submitter);};
 $('sessionForm').onsubmit=e=>{e.preventDefault();run(()=>save('session',$('sessionInput').value.trim()),e.submitter);};
 for(const id of ['search','rating','sort'])$(id).addEventListener(id==='search'?'input':'change',()=>{state.limit=80;draw();});
 document.querySelectorAll('[data-section]').forEach(button=>button.onclick=()=>{state.section=button.dataset.section;document.querySelectorAll('[data-section]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));draw();});
@@ -172,3 +174,5 @@ $('archiveButton').onclick=()=>run(async()=>{await localSession();const picked=a
 
 $('categoryForm').onsubmit=e=>{e.preventDefault();run(()=>save('category',$('categoryInput').value),e.submitter);};
 $('organizeButton').onclick=()=>run(()=>startJob('/api/organize',{}),$('organizeButton'));
+
+$('spanishNamesButton').onclick=()=>run(()=>startJob('/api/spanish-names',{}),$('spanishNamesButton'));

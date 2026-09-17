@@ -2,8 +2,13 @@ export const PHOTO_ID = /^[a-f0-9]{64}$/;
 export const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function validateEvent(event) {
   if (!event || !UUID.test(event.id) || !PHOTO_ID.test(event.photoId) ||
-      !Number.isSafeInteger(event.at) || event.at < 0 || !['rating', 'species', 'session', 'category'].includes(event.field))
+      !Number.isSafeInteger(event.at) || event.at < 0 || !['rating', 'species', 'session', 'category', 'identification'].includes(event.field))
     throw new Error('Corrección de catálogo no válida.');
+  if(event.field==='identification'){
+    const v=event.value;
+    if(!v||typeof v!=='object'||Object.keys(v).sort().join(',')!=='scientificName,species'||typeof v.species!=='string'||!v.species.trim()||v.species.length>160||typeof v.scientificName!=='string'||v.scientificName.length>160)throw new Error('Identificación no válida.');
+    return event;
+  }
   if (event.field === 'rating' && (!Number.isInteger(event.value) || event.value < 1 || event.value > 5))
     throw new Error('La valoración debe estar entre 1 y 5.');
   if (event.field !== 'rating' && (typeof event.value !== 'string' || !event.value.trim() || event.value.length > 160))
@@ -24,8 +29,9 @@ export function mergePhotos(photos, events) {
     seen.set(event.id,signature);
     const photo = result.get(event.photoId);
     if (!photo) continue;
-    photo[event.field] = event.value;
-    if (event.field === 'species') { photo.reviewStatus = 'manual'; photo.confidence = null; }
+    if(event.field==='identification'){Object.assign(photo,event.value);photo.reviewStatus='manual';photo.confidence=null;photo.nameSource=null;}
+    else photo[event.field] = event.value;
+    if (event.field === 'species') { photo.reviewStatus = 'manual'; photo.confidence = null; photo.scientificName='';photo.nameSource=null; }
     if (event.field === 'rating') photo.ratingSource = 'manual';
   }
   return [...result.values()];

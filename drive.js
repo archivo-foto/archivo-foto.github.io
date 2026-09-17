@@ -3,7 +3,7 @@ import {validateEvent, validateSnapshot} from './model.js';
 const API='https://www.googleapis.com/drive/v3';
 const SCOPE='https://www.googleapis.com/auth/drive.file';
 const escapeQuery=value=>value.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-const PUBLIC_FIELDS=['id','fileName','session','category','species','scientificName','reviewStatus','confidence','rating','ratingSource','capturedAt','importedAt','metadata','width','height','analyzed'];
+const PUBLIC_FIELDS=['id','fileName','session','category','species','scientificName','nameSource','reviewStatus','confidence','rating','ratingSource','capturedAt','importedAt','metadata','width','height','analyzed'];
 
 export class Drive {
   constructor(config, fetcher=(...args)=>globalThis.fetch(...args)) { this.config=config; this.fetcher=fetcher; this.token=''; this.until=0; this.folder=null; }
