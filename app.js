@@ -1,6 +1,6 @@
-import {accountId,googleIdentity} from './auth.js';
-import {Drive} from './drive.js';
-import {mergePhotos,filterPhotos,UUID} from './model.js';
+import {accountId,googleIdentity} from './auth.js?v=20260918-03';
+import {Drive} from './drive.js?v=20260918-03';
+import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260918-03';
 
 const $=id=>document.getElementById(id);
 const state={desktop:false,config:null,user:null,epoch:0,operations:0,drive:null,snapshot:null,events:[],section:'all',selected:null,limit:80,busy:false,urls:new Set(),generation:0};

@@ -1,5 +1,5 @@
-import {GOOGLE_SCOPES} from './auth.js';
-import {validateEvent, validateSnapshot} from './model.js';
+import {GOOGLE_SCOPES} from './auth.js?v=20260918-03';
+import {validateEvent, validateSnapshot} from './model.js?v=20260918-03';
 const API='https://www.googleapis.com/drive/v3';
 const SCOPE='https://www.googleapis.com/auth/drive.file';
 const escapeQuery=value=>value.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
