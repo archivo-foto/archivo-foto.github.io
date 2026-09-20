@@ -1,10 +1,10 @@
-import {accountId,googleIdentity} from './auth.js?v=20260918-03';
-import {Drive} from './drive.js?v=20260918-03';
-import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260918-03';
+import {accountId,googleIdentity} from './auth.js?v=20260920-01';
+import {Drive} from './drive.js?v=20260920-01';
+import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260920-01';
 
 const $=id=>document.getElementById(id);
 const state={desktop:false,config:null,user:null,epoch:0,operations:0,drive:null,snapshot:null,events:[],section:'all',selected:null,limit:80,busy:false,urls:new Set(),generation:0};
-let observer,sessionTimer,jobTimer;
+let observer,sessionTimer,jobTimer,lastJobPhase,attemptedSync;
 function notice(text,error=false){$('notice').textContent=text;$('notice').classList.toggle('error',error);$('notice').hidden=false;}
 function clearNotice(){$('notice').hidden=true;}
 async function run(action,button){if(button)button.disabled=true;clearNotice();state.operations++;try{return await action();}catch(error){notice(error.message||'No se pudo completar la operación.',true);}finally{state.operations--;if(button)button.disabled=false;}}
@@ -82,29 +82,43 @@ async function sync(){
   if(state.busy)return;state.busy=true;
   $('importButton').disabled=true;$('analyzeButton').disabled=true;$('syncButton').disabled=true;
   try {
-    await localSession();const data=await local('/api/catalog');
+    await localSession();const job=await local('/api/job');
+    if(job.status==='running')throw new Error('La sincronización se realizará al terminar la identificación.');
+    const data=await local('/api/catalog');
     const remoteEvents=await state.drive.publish(data.snapshot,data.events,async(id,kind)=>{
       const response=await fetch(`/api/image/${id}?kind=${kind}&account=${state.drive.config.instanceId}`,{signal:AbortSignal.timeout(30000)});if(!response.ok)throw new Error('No se pudo leer una vista previa local.');return response.blob();
     },(done,total)=>{$('connectionText').textContent=`Sincronizando ${done} de ${total} fotografías…`;});
     if(remoteEvents.length)await local('/api/events',{events:remoteEvents});
+    if(job.pendingSync)await local('/api/sync-ack',{token:job.pendingSync});
     await reload();$('connectionText').textContent='Catálogo sincronizado con tu Google Drive.';notice('Sincronización completada. Ya puedes abrir el catálogo en el móvil.');
   } finally{state.busy=false;$('importButton').disabled=false;$('analyzeButton').disabled=false;$('syncButton').disabled=false;}
 }
 async function pollJob(){
-  const job=await local('/api/job');if(job.status==='idle'){$('job').hidden=true;return;}$('job').hidden=false;
+  const job=await local('/api/job');if(job.status==='idle'){$('job').hidden=true;await finishSync(job);return;}$('job').hidden=false;
   $('jobText').textContent=job.status==='error'?job.error:job.status==='done'?
     `Tarea terminada: ${job.details.imported??job.details.analyzed??job.details.organized??job.details.named??job.details.exported??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
     `${job.kind==='import'?'Importando':job.kind==='organize'?'Organizando carpetas':job.kind==='names'?'Consultando nombres en español':job.kind==='export'?'Preparando originales':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
   if(job.kind==='export'&&job.status==='done')$('jobText').textContent=`JPG preparados: ${job.details.exported}. Carpeta: ${job.details.path}. Pendientes de subir a tu nube.`;
   if(job.total){$('jobProgress').max=job.total;$('jobProgress').value=job.done;}else $('jobProgress').removeAttribute('value');
-  if(job.status==='running'){jobTimer=setTimeout(()=>run(pollJob),1500);return;}
+  if(job.status==='running'){
+    $('importButton').disabled=true;$('analyzeButton').disabled=true;$('syncButton').disabled=true;
+    const phase=job.id+':'+job.kind;
+    if(phase!==lastJobPhase){lastJobPhase=phase;await reload();}
+    jobTimer=setTimeout(()=>run(pollJob),1500);return;}
   $('importButton').disabled=false;$('analyzeButton').disabled=false;
+  $('syncButton').disabled=false;
   if(job.status==='error')notice(job.error,true);await reload();
+  if(job.status==='done')await finishSync(job);
+}
+async function finishSync(job){
+  if(!job.pendingSync||attemptedSync===job.pendingSync||state.busy)return;
+  attemptedSync=job.pendingSync;
+  try{await sync();}catch(error){notice('Fotos conservadas en este ordenador. Sincronización pendiente: '+error.message+' Renueva la conexión y pulsa Sincronizar.',true);}
 }
 async function startJob(path,body){await localSession();await local(path,body);$('importDialog').close();$('importButton').disabled=true;$('analyzeButton').disabled=true;await pollJob();}
 
 function resetAccount(){
-  state.epoch++;clearInterval(sessionTimer);clearTimeout(jobTimer);clearImages();state.drive?.disconnect();
+  lastJobPhase=null;attemptedSync=null;state.epoch++;clearInterval(sessionTimer);clearTimeout(jobTimer);clearImages();state.drive?.disconnect();
   state.drive=null;state.user=null;state.snapshot=null;state.events=[];state.selected=null;state.section='all';state.limit=80;
   $('grid').replaceChildren();$('detailImage').removeAttribute('src');$('detailImage').alt='';
   for(const id of ['search','speciesInput','sessionInput','folderInput'])$(id).value='';
@@ -153,7 +167,7 @@ for(const id of ['googleButton','connectButton'])$(id).onclick=()=>{
 $('syncButton').onclick=()=>run(sync);$('refreshButton').onclick=()=>run(reload,$('refreshButton'));
 $('importButton').onclick=()=>$('importDialog').showModal();
 $('chooseFolderButton').onclick=()=>run(async()=>{await localSession();const result=await local('/api/pick-folder',{});if(result.folder)$('folderInput').value=result.folder;},$('chooseFolderButton'));
-$('importForm').onsubmit=e=>{e.preventDefault();run(()=>startJob('/api/import',{folder:$('folderInput').value,autoAnalyze:$('autoAnalyze').checked,spanishNames:$('spanishNames').checked}),e.submitter);};
+$('importForm').onsubmit=e=>{e.preventDefault();run(()=>startJob('/api/import',{folder:$('folderInput').value,category:$('importCategory').value,autoAnalyze:$('autoAnalyze').checked,spanishNames:$('spanishNames').checked}),e.submitter);};
 $('analyzeButton').onclick=()=>run(()=>startJob('/api/analyze',{spanishNames:$('spanishNames').checked}),$('analyzeButton'));
 $('backupButton').onclick=()=>run(async()=>{await localSession();const result=await local('/api/backup-disk',{});notice('Copia del catálogo guardada y comprobada: '+result.path+' (sin fotografías).');},$('backupButton'));
 $('speciesForm').onsubmit=e=>{e.preventDefault();run(()=>save('identification',{species:$('speciesInput').value.trim(),scientificName:photos().find(p=>p.id===state.selected)?.species===$('speciesInput').value.trim()?(photos().find(p=>p.id===state.selected)?.scientificName||''):''}),e.submitter);};

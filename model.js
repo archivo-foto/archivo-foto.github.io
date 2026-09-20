@@ -1,3 +1,4 @@
+export const normalizeCategory=value=>({'LINCE':'FAUNA','MACRO EXTREMO':'MACRO'}[value]||value);
 export const PHOTO_ID = /^[a-f0-9]{64}$/;
 export const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function validateEvent(event) {
@@ -13,7 +14,7 @@ export function validateEvent(event) {
     throw new Error('La valoración debe estar entre 1 y 5.');
   if (event.field !== 'rating' && (typeof event.value !== 'string' || !event.value.trim() || event.value.length > 160))
     throw new Error('El texto debe tener entre 1 y 160 caracteres.');
-  if(event.field==='category'&&!['POR_CLASIFICAR','LINCE','AVES','FAUNA','FLORA','INSECTOS','MACRO EXTREMO','NOCTURNAS','PAISAJE'].includes(event.value))throw new Error('Categoría no válida.');
+  if(event.field==='category'&&!['POR_CLASIFICAR','LINCE','AVES','FAUNA','FLORA','INSECTOS','MACRO EXTREMO','NOCTURNAS','PAISAJE','MACRO','CIELO PROFUNDO'].includes(event.value))throw new Error('Categoría no válida.');
   return event;
 }
 export function mergePhotos(photos, events) {
@@ -34,7 +35,7 @@ export function mergePhotos(photos, events) {
     if (event.field === 'species') { photo.reviewStatus = 'manual'; photo.confidence = null; photo.scientificName='';photo.nameSource=null; }
     if (event.field === 'rating') photo.ratingSource = 'manual';
   }
-  return [...result.values()];
+  return [...result.values()].map(p=>({...p,category:normalizeCategory(p.category||'POR_CLASIFICAR')}));
 }
 export function filterPhotos(photos, {query='', rating='', section='all', sort='recent'}={}) {
   const clean = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es');
