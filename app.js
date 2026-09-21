@@ -98,6 +98,11 @@ async function pollJob(){
   $('jobText').textContent=job.status==='error'?job.error:job.status==='done'?
     `Tarea terminada: ${job.details.imported??job.details.analyzed??job.details.organized??job.details.named??job.details.exported??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
     `${job.kind==='import'?'Importando':job.kind==='organize'?'Organizando carpetas':job.kind==='names'?'Consultando nombres en español':job.kind==='export'?'Preparando originales':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
+  if(job.kind==='organize'&&job.status==='done'){
+    const moved=job.details.organized??0,missing=job.details.missing??0;
+    $('jobText').textContent=`Organización terminada: ${job.total??0} fotografías comprobadas. ${moved?`${moved} copias reubicadas.`:'Las copias encontradas ya estaban en su carpeta correcta.'}${missing?` Atención: faltan ${missing} originales en el disco.`:' No faltan originales.'} En las estructuras por especie, las identificaciones sin confirmar permanecen en POR_REVISAR.`;
+    notice($('jobText').textContent,missing>0);
+  }
   if(job.kind==='export'&&job.status==='done')$('jobText').textContent=`JPG preparados: ${job.details.exported}. Carpeta: ${job.details.path}. Pendientes de subir a tu nube.`;
   if(job.total){$('jobProgress').max=job.total;$('jobProgress').value=job.done;}else $('jobProgress').removeAttribute('value');
   if(job.status==='running'){
@@ -210,3 +215,9 @@ async function showExports(){
 $('exportButton').onclick=()=>run(async()=>{await showExports();$('exportDialog').showModal();},$('exportButton'));
 $('prepareExport').onclick=()=>run(async()=>{const ids=exportSelection();await localSession();await local('/api/export',{ids});$('exportDialog').close();await pollJob();},$('prepareExport'));
 $('cloudLinkForm').onsubmit=e=>{e.preventDefault();run(async()=>{await local('/api/export-link',{url:$('cloudLink').value});await showExports();},e.submitter);};
+
+const organizationExamples={category_species:'Aves → Abejaruco',session:'Salida a Doñana',year_session:'2026 → Salida a Doñana',category_species_session:'Aves → Abejaruco → Salida a Doñana'};
+function showOrganizationExample(){$('organizationExample').textContent='Ejemplo: GALERIA → '+organizationExamples[$('organizationLayout').value];}
+$('organizationLayout').onchange=showOrganizationExample;
+$('organizationButton').onclick=()=>run(async()=>{await localSession();const data=await local('/api/organization');$('organizationLayout').value=data.layout;showOrganizationExample();$('organizationDialog').showModal();},$('organizationButton'));
+$('applyOrganization').onclick=()=>run(async()=>{await startJob('/api/organize',{layout:$('organizationLayout').value});$('organizationDialog').close();},$('applyOrganization'));
