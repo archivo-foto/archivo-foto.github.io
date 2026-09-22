@@ -3,8 +3,9 @@ export const PHOTO_ID = /^[a-f0-9]{64}$/;
 export const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export function validateEvent(event) {
   if (!event || !UUID.test(event.id) || !PHOTO_ID.test(event.photoId) ||
-      !Number.isSafeInteger(event.at) || event.at < 0 || !['rating', 'species', 'session', 'category', 'identification'].includes(event.field))
+      !Number.isSafeInteger(event.at) || event.at < 0 || !['rating', 'species', 'session', 'category', 'identification', 'deleted'].includes(event.field))
     throw new Error('Corrección de catálogo no válida.');
+  if(event.field==='deleted'){if(typeof event.value!=='boolean')throw new Error('Estado de papelera no válido.');return event;}
   if(event.field==='identification'){
     const v=event.value;
     if(!v||typeof v!=='object'||Object.keys(v).sort().join(',')!=='scientificName,species'||typeof v.species!=='string'||!v.species.trim()||v.species.length>160||typeof v.scientificName!=='string'||v.scientificName.length>160)throw new Error('Identificación no válida.');
@@ -40,7 +41,7 @@ export function mergePhotos(photos, events) {
 export function filterPhotos(photos, {query='', rating='', section='all', sort='recent'}={}) {
   const clean = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es');
   const terms = clean(query).trim().split(/\s+/).filter(Boolean);
-  return photos.filter(photo => (!rating || photo.rating === Number(rating)) &&
+  return photos.filter(photo => (section==='trash'?photo.deleted===true:photo.deleted!==true) && (!rating || photo.rating === Number(rating)) &&
     (section !== 'pending' || photo.reviewStatus === 'pendiente') &&
     terms.every(term => clean([photo.fileName, photo.species, photo.scientificName, photo.session, photo.metadata].join(' ')).includes(term)))
     .sort((a,b) => sort === 'rating' ? (b.rating ?? 0) - (a.rating ?? 0) :

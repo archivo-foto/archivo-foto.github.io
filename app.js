@@ -1,6 +1,6 @@
-import {accountId,googleIdentity} from './auth.js?v=20260920-01';
-import {Drive} from './drive.js?v=20260920-01';
-import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260920-01';
+import {accountId,googleIdentity} from './auth.js?v=20260922-05';
+import {Drive} from './drive.js?v=20260922-05';
+import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260922-05';
 
 const $=id=>document.getElementById(id);
 const state={desktop:false,config:null,user:null,epoch:0,operations:0,drive:null,snapshot:null,events:[],section:'all',selected:null,limit:80,busy:false,urls:new Set(),generation:0};
@@ -26,13 +26,13 @@ async function picture(photo,kind){
   const blob=await state.drive.image(id);const url=URL.createObjectURL(blob);state.urls.add(url);return url;
 }
 function draw(){
-  clearImages();const all=photos();const generation=state.generation;
+  clearImages();const all=photos().filter(p=>!p.deleted);const generation=state.generation;
   $('firstSteps').hidden=all.length>0;
   $('photoCount').textContent=all.length.toLocaleString('es');
   $('speciesCount').textContent=new Set(all.map(p=>p.species).filter(Boolean)).size;
   $('sessionCount').textContent=new Set(all.map(p=>p.session).filter(Boolean)).size;
   $('pendingCount').textContent=all.filter(p=>p.reviewStatus==='pendiente').length;
-  const visible=filterPhotos(all,{query:$('search').value,rating:$('rating').value,section:state.section,sort:$('sort').value});
+  const visible=filterPhotos(photos(),{query:$('search').value,rating:$('rating').value,section:state.section,sort:$('sort').value});
   $('resultCount').textContent=all.length?`${visible.length.toLocaleString('es')} fotografías · ${state.desktop?'Catálogo de este ordenador':'Catálogo de Google Drive'}`:'';
   $('empty').hidden=visible.length>0;$('emptyText').textContent=all.length?'No hay fotografías que coincidan. Prueba con otra búsqueda o filtro.':
     state.desktop?'Añade tu primera carpeta y sincroniza para consultar el catálogo desde el móvil.':'Conecta el mismo Google Drive que usas en Windows. El catálogo aparecerá después de su primera sincronización.';
@@ -57,6 +57,7 @@ async function reload(){
 }
 async function openPhoto(id){
   const photo=photos().find(p=>p.id===id);if(!photo)return;
+  $('deletePhotoButton').textContent=photo.deleted?'Restaurar fotografía':'Quitar del catálogo';
   state.selected=id;$('detailTitle').textContent=photo.species||photo.scientificName||photo.fileName;
   $('detailMetadata').textContent=[photo.fileName,photo.capturedAt?.slice(0,10),photo.metadata].filter(Boolean).join(' · ');
   $('categoryInput').value=photo.category||'POR_CLASIFICAR';
@@ -94,17 +95,20 @@ async function sync(){
   } finally{state.busy=false;$('importButton').disabled=false;$('analyzeButton').disabled=false;$('syncButton').disabled=false;}
 }
 async function pollJob(){
+  clearTimeout(jobTimer);
   const job=await local('/api/job');if(job.status==='idle'){$('job').hidden=true;await finishSync(job);return;}$('job').hidden=false;
   $('jobText').textContent=job.status==='error'?job.error:job.status==='done'?
     `Tarea terminada: ${job.details.imported??job.details.analyzed??job.details.organized??job.details.named??job.details.exported??0} fotografías procesadas; ${job.details.duplicates??0} duplicadas; ${job.details.errors??0} errores.`:
     `${job.kind==='import'?'Importando':job.kind==='organize'?'Organizando carpetas':job.kind==='names'?'Consultando nombres en español':job.kind==='export'?'Preparando originales':'Analizando con BioCLIP 2'} · ${job.done} de ${job.total||'…'}${job.kind==='analyze'&&!job.done?' · Cargando el modelo incluido. Puede tardar.':''}`;
+  if(job.status==='done'&&job.details.lastError)$('jobText').textContent+=' Último error: '+job.details.lastError;
   if(job.kind==='organize'&&job.status==='done'){
     const moved=job.details.organized??0,missing=job.details.missing??0;
-    $('jobText').textContent=`Organización terminada: ${job.total??0} fotografías comprobadas. ${moved?`${moved} copias reubicadas.`:'Las copias encontradas ya estaban en su carpeta correcta.'}${missing?` Atención: faltan ${missing} originales en el disco.`:' No faltan originales.'} En las estructuras por especie, las identificaciones sin confirmar permanecen en POR_REVISAR.`;
+    $('jobText').textContent=`Organización terminada: ${job.total??0} fotografías comprobadas. ${moved?`${moved} copias reubicadas.`:'Las copias encontradas ya estaban en su carpeta correcta.'}${missing?` Atención: faltan ${missing} originales en el disco.`:' No faltan originales.'} En las estructuras por especie, las identificaciones sin confirmar permanecen en POR REVISAR.`;
     notice($('jobText').textContent,missing>0);
   }
   if(job.kind==='export'&&job.status==='done')$('jobText').textContent=`JPG preparados: ${job.details.exported}. Carpeta: ${job.details.path}. Pendientes de subir a tu nube.`;
-  if(job.total){$('jobProgress').max=job.total;$('jobProgress').value=job.done;}else $('jobProgress').removeAttribute('value');
+  if(job.status!=='running'){$('jobProgress').max=1;$('jobProgress').value=job.status==='done'?1:0;}
+  else if(job.total){$('jobProgress').max=job.total;$('jobProgress').value=job.done;}else $('jobProgress').removeAttribute('value');
   if(job.status==='running'){
     $('importButton').disabled=true;$('analyzeButton').disabled=true;$('syncButton').disabled=true;
     const phase=job.id+':'+job.kind;
@@ -169,7 +173,11 @@ for(const id of ['googleButton','connectButton'])$(id).onclick=()=>{
   if(state.operations||state.busy)return notice('Espera a que termine la operación actual antes de cambiar de cuenta.');
   run(connectGoogle,$(id));
 };
-$('syncButton').onclick=()=>run(sync);$('refreshButton').onclick=()=>run(reload,$('refreshButton'));
+$('syncButton').onclick=()=>run(sync);$('refreshButton').onclick=()=>run(async()=>{
+  const button=$('refreshButton');button.textContent='Actualizando…';
+  try{state.drive.folder=null;await reload();const message='Catálogo actualizado desde Google Drive: '+photos().filter(p=>!p.deleted).length+' fotografías. Si faltan fotos, sincroniza primero desde el ordenador.';$('connectionText').textContent=message;notice(message);}
+  finally{button.textContent='Actualizar desde Drive';}
+},$('refreshButton'));
 $('importButton').onclick=()=>$('importDialog').showModal();
 $('chooseFolderButton').onclick=()=>run(async()=>{await localSession();const result=await local('/api/pick-folder',{});if(result.folder)$('folderInput').value=result.folder;},$('chooseFolderButton'));
 $('importForm').onsubmit=e=>{e.preventDefault();run(()=>startJob('/api/import',{folder:$('folderInput').value,category:$('importCategory').value,autoAnalyze:$('autoAnalyze').checked,spanishNames:$('spanishNames').checked}),e.submitter);};
@@ -199,7 +207,7 @@ $('organizeButton').onclick=()=>run(()=>startJob('/api/organize',{}),$('organize
 
 $('spanishNamesButton').onclick=()=>run(()=>startJob('/api/spanish-names',{}),$('spanishNamesButton'));
 
-function exportSelection(){return filterPhotos(photos(),{query:$('search').value,rating:$('rating').value,section:state.section}).map(p=>p.id);}
+function exportSelection(){return filterPhotos(photos().filter(p=>!p.deleted),{query:$('search').value,rating:$('rating').value,section:state.section}).map(p=>p.id);}
 async function showExports(){
   const data=await local('/api/exports');$('cloudLink').value=data.url;
   $('openCloud').hidden=!data.url;if(data.url)$('openCloud').href=data.url;else $('openCloud').removeAttribute('href');
@@ -221,3 +229,13 @@ function showOrganizationExample(){$('organizationExample').textContent='Ejemplo
 $('organizationLayout').onchange=showOrganizationExample;
 $('organizationButton').onclick=()=>run(async()=>{await localSession();const data=await local('/api/organization');$('organizationLayout').value=data.layout;showOrganizationExample();$('organizationDialog').showModal();},$('organizationButton'));
 $('applyOrganization').onclick=()=>run(async()=>{await startJob('/api/organize',{layout:$('organizationLayout').value});$('organizationDialog').close();},$('applyOrganization'));
+
+$('deletePhotoButton').onclick=()=>run(async()=>{
+  const photo=photos().find(p=>p.id===state.selected);if(!photo)return;
+  const deleted=!photo.deleted;
+  if(deleted&&!confirm('¿Quitar esta foto del catálogo? Podrás restaurarla desde Papelera. Los originales del disco y las copias de respaldo se conservan.'))return;
+  const event={id:crypto.randomUUID(),photoId:photo.id,field:'deleted',value:deleted,at:state.events.reduce((n,e)=>Math.max(n,e.at+1),Date.now())};
+  if(state.desktop)await local('/api/events',{events:[event]});else await state.drive.review(event);
+  state.events.push(event);$('detail').close();state.selected=null;draw();
+  notice((deleted?'Fotografía enviada a Papelera.':'Fotografía restaurada.')+(state.desktop?' Sincroniza para reflejarlo en el móvil.':' Cambio guardado en Drive.'));
+},$('deletePhotoButton'));

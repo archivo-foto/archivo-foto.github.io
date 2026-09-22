@@ -1,5 +1,5 @@
-import {GOOGLE_SCOPES} from './auth.js?v=20260920-01';
-import {validateEvent, validateSnapshot} from './model.js?v=20260920-01';
+import {GOOGLE_SCOPES} from './auth.js?v=20260922-05';
+import {validateEvent, validateSnapshot} from './model.js?v=20260922-05';
 const API='https://www.googleapis.com/drive/v3';
 const SCOPE='https://www.googleapis.com/auth/drive.file';
 const escapeQuery=value=>value.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -25,7 +25,7 @@ export class Drive {
   async request(path, options={}) {
     if(!this.token || this.until < Date.now()+10000) throw new Error('La conexión con Drive ha caducado. Pulsa «Conectar Google Drive» para renovarla.');
     const response=await this.fetcher(path.startsWith('https://') ? path : API+path, {
-      ...options, headers:{...options.headers,Authorization:`Bearer ${this.token}`}, signal:AbortSignal.timeout(60000)});
+      ...options, cache:'no-store', headers:{...options.headers,Authorization:`Bearer ${this.token}`}, signal:AbortSignal.timeout(60000)});
     if (!response.ok) {
       const data=await response.json().catch(()=>({}));
       const reason=data.error?.errors?.[0]?.reason;
