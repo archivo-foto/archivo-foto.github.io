@@ -1,6 +1,6 @@
-import {accountId,googleIdentity} from './auth.js?v=20260922-05';
-import {Drive} from './drive.js?v=20260922-05';
-import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260922-05';
+import {accountId,googleIdentity} from './auth.js?v=20260929-01';
+import {Drive} from './drive.js?v=20260929-01';
+import {mergePhotos,filterPhotos,UUID} from './model.js?v=20260929-01';
 
 const $=id=>document.getElementById(id);
 const state={desktop:false,config:null,user:null,epoch:0,operations:0,drive:null,snapshot:null,events:[],section:'all',selected:null,limit:80,busy:false,urls:new Set(),generation:0};
@@ -52,7 +52,9 @@ function draw(){
 }
 async function reload(){
   if(state.desktop){const data=await local('/api/catalog');state.snapshot=data.snapshot;state.events=data.events;}
-  else {const data=await state.drive.load();state.snapshot=data.snapshot;state.events=data.events;}
+  else {const data=await state.drive.load(({phase,done,total})=>{
+    notice(phase==='inventory'?'Google conectado. Buscando el catálogo…':phase==='snapshot'?'Cargando catálogo…':`Cargando correcciones: ${done} de ${total}…`);
+  });state.snapshot=data.snapshot;state.events=data.events;}
   draw();
 }
 async function openPhoto(id){
@@ -153,7 +155,7 @@ async function connectGoogle(){
     candidate.config={...state.config,instanceId};state.drive=candidate;state.user=user;
     if(state.desktop)await localSession();
     await reload();
-    $('login').hidden=true;$('catalog').hidden=false;$('accountButton').hidden=false;
+    clearNotice();$('login').hidden=true;$('catalog').hidden=false;$('accountButton').hidden=false;
     $('desktopTools').hidden=!state.desktop;$('importButton').hidden=!state.desktop;
     $('syncButton').hidden=!state.desktop;$('refreshButton').hidden=state.desktop;
     $('userEmail').textContent=user.email;$('connectionText').textContent='Conectado a '+user.email+'. Tu catálogo pertenece a esta cuenta.';
@@ -239,3 +241,17 @@ $('deletePhotoButton').onclick=()=>run(async()=>{
   state.events.push(event);$('detail').close();state.selected=null;draw();
   notice((deleted?'Fotografía enviada a Papelera.':'Fotografía restaurada.')+(state.desktop?' Sincroniza para reflejarlo en el móvil.':' Cambio guardado en Drive.'));
 },$('deletePhotoButton'));
+
+$('publicationButton').onclick=()=>run(async()=>{
+ if(!state.desktop||!state.drive)throw new Error('Conecta tu cuenta en la app de escritorio.');
+ const account=state.drive.config.instanceId,epoch=state.epoch;
+ // Open while the click is active, before awaiting session verification.
+ const panel=window.open('about:blank','_blank','popup,width=1200,height=850');
+ if(!panel)throw new Error('El navegador ha bloqueado la ventana. Permite ventanas emergentes para Archivo fotográfico y vuelve a pulsar Publicación web.');
+ panel.opener=null;panel.document.title='Publicación web';panel.document.body.textContent='Conectando con tu catálogo…';
+ try{
+  await localSession();
+  if(epoch!==state.epoch||account!==state.drive?.config.instanceId)throw new Error('La cuenta ha cambiado. Abre el panel de nuevo.');
+  if(!panel.closed)panel.location.replace('/publicacion/publicacion.html?v=5estrellas-ventana2#account='+encodeURIComponent(account));
+ }catch(error){panel.close();throw error;}
+},$('publicationButton'));

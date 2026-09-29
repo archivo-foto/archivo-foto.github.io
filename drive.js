@@ -1,5 +1,5 @@
-import {GOOGLE_SCOPES} from './auth.js?v=20260922-05';
-import {validateEvent, validateSnapshot} from './model.js?v=20260922-05';
+import {GOOGLE_SCOPES} from './auth.js?v=20260929-01';
+import {validateEvent, validateSnapshot} from './model.js?v=20260929-01';
 const API='https://www.googleapis.com/drive/v3';
 const SCOPE='https://www.googleapis.com/auth/drive.file';
 const escapeQuery=value=>value.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -68,12 +68,30 @@ export class Drive {
   }
   async json(id) { return (await this.request(`/files/${encodeURIComponent(id)}?alt=media`)).json(); }
   async image(id) { return (await this.request(`/files/${encodeURIComponent(id)}?alt=media`)).blob(); }
-  async load() {
+  async load(progress=()=>{}) {
+    progress({phase:'inventory',done:0,total:0});
     const files=await this.inventory();
     const snapshots=files.filter(f=>f.appProperties?.kind==='snapshot').sort((a,b)=>b.createdTime.localeCompare(a.createdTime)||b.id.localeCompare(a.id));
+    progress({phase:'snapshot',done:0,total:0});
     const snapshot=snapshots.length ? validateSnapshot(await this.json(snapshots[0].id),this.config.instanceId) : null;
-    const events=[];
-    for(const f of files.filter(f=>f.appProperties?.kind==='review')) events.push(validateEvent(await this.json(f.id)));
+    const reviews=files.filter(f=>f.appProperties?.kind==='review');
+    const events=new Array(reviews.length);
+    let next=0,done=0,failure;
+    progress({phase:'reviews',done,total:reviews.length});
+    // Bounded concurrency keeps all immutable events, including old mobile edits.
+    // Preserve inventory order even when requests finish in a different order.
+    const worker=async()=>{
+      while(!failure && next<reviews.length){
+        const index=next++;
+        try{
+          events[index]=validateEvent(await this.json(reviews[index].id));
+          done++;
+          if(!failure)progress({phase:'reviews',done,total:reviews.length});
+        }catch(error){failure=error;}
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(6,reviews.length)},worker));
+    if(failure)throw failure;
     return {snapshot,events,files};
   }
   async review(event) {
